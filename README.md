@@ -33,3 +33,7 @@ peer lifecycle chaincode install test1.tar.gz
 peer lifecycle chaincode approveformyorg --channelID channel1 --name test1 --version 1.0 --package-id test1:70ef09105a883fa88c23fbf503837c2bdef69971095a14bc0eeb9c39b5b8d3da --sequence 1 $ORDERER_OPTS
 - Commit
 peer lifecycle chaincode commit --channelID channel1 --name test1 --version 1.0  --sequence 1 $ORDERER_OPTS --peerAddresses localhost:7051 --peerAddresses localhost:9051 --tlsRootCertFiles ${PWD}/organizations/peerOrganizations/org1.example.com/peers/peer0.org1.example.com/tls/ca.crt --tlsRootCertFiles ${PWD}/organizations/peerOrganizations/org2.example.com/peers/peer0.org2.example.com/tls/ca.crt
+- Query
+peer chaincode query -C channel1 --name test1 --ctor '{"Args":["QueryAuction","bla"]}'
+- Invoke
+peer chaincode invoke -C channel1 --name test1 --ctor '{"Args":["CreateAuction","bla", "test"]}' $ORDERER_OPTS --peerAddresses localhost:7051 --peerAddresses localhost:9051 --tlsRootCertFiles ${PWD}/organizations/peerOrganizations/org1.example.com/peers/peer0.org1.example.com/tls/ca.crt --tlsRootCertFiles ${PWD}/organizations/peerOrganizations/org2.example.com/peers/peer0.org2.example.com/tls/ca.crt
