@@ -6,11 +6,11 @@ cryptogen generate --config=./organizations/cryptogen/crypto-config-orderer.yaml
 - Create genesis block
 configtxgen -profile TwoOrgsOrdererGenesis -channelID system-channel -outputBlock ./system-genesis-block/genesis.block -configPath configtx
 - Launch network
-set IMAGE_TAG=2.3
 docker-compose up
 - Delete the whole network
 docker-compose down -v
 # Peer setup
+- start CLI container (on windows)
 docker run -it --rm --network="host" -v "%cd%":/mnt hyperledger/fabric-tools bash
 source ./act_as_admin.sh org1 Org1MSP peer0 localhost:7051
 - env
