@@ -1,0 +1,23 @@
+plugins {
+    id 'application'
+}
+
+group 'com.example'
+version '1.0-SNAPSHOT'
+
+sourceCompatibility = 1.8
+
+repositories {
+    mavenCentral()
+    maven {
+        url 'https://jitpack.io'
+    }
+}
+
+dependencies {
+    compileOnly 'org.hyperledger.fabric-chaincode-java:fabric-chaincode-shim:2.+'
+}
+
+application {
+    mainClassName = 'org.hyperledger.fabric.contract.ContractRouter'
+}
