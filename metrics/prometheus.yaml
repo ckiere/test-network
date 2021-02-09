@@ -1,0 +1,4 @@
+scrape_configs:
+- job_name: orderer
+  static_configs:
+  - targets: ['orderer.example.com:8080']

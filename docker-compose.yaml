@@ -12,6 +12,14 @@ volumes:
 
 services:
 
+  prometheus:
+    container_name: prometheus
+    image: prom/prometheus
+    volumes: 
+      - ./metrics/prometheus.yaml:/etc/prometheus/prometheus.yml
+    ports:
+      - 9090:9090
+
   orderer.example.com:
     container_name: orderer.example.com
     image: hyperledger/fabric-orderer:$IMAGE_TAG
@@ -31,6 +39,8 @@ services:
       - ORDERER_GENERAL_CLUSTER_CLIENTCERTIFICATE=/var/hyperledger/orderer/tls/server.crt
       - ORDERER_GENERAL_CLUSTER_CLIENTPRIVATEKEY=/var/hyperledger/orderer/tls/server.key
       - ORDERER_GENERAL_CLUSTER_ROOTCAS=[/var/hyperledger/orderer/tls/ca.crt]
+      - ORDERER_OPERATIONS_LISTENADDRESS=0.0.0.0:8080
+      - ORDERER_METRICS_PROVIDER=prometheus
     working_dir: /opt/gopath/src/github.com/hyperledger/fabric
     command: orderer
     volumes:
@@ -40,6 +50,7 @@ services:
         - orderer.example.com:/var/hyperledger/production/orderer
     ports:
       - 7050:7050
+      - 8080:8080
 
   peer0.org1.example.com:
     container_name: peer0.org1.example.com
