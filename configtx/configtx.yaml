@@ -113,6 +113,32 @@ Organizations:
             - Host: peer0.org2.example.com
               Port: 9051
 
+    - &Idemix
+        # DefaultOrg defines the organization which is used in the sampleconfig
+        # of the fabric.git development environment
+        Name: IdemixMSP
+
+        # ID to load the MSP definition as
+        ID: IdemixMSP
+
+        Msptype: idemix
+        MSPDir: ../organizations/peerOrganizations/idemix.example.com
+
+        Policies:
+            Readers:
+                Type: Signature
+                Rule: "OR('IdemixMSP.admin', 'IdemixMSP.peer', 'IdemixMSP.client')"
+            Writers:
+                Type: Signature
+                Rule: "OR('IdemixMSP.admin', 'IdemixMSP.client')"
+            Admins:
+                Type: Signature
+                Rule: "OR('IdemixMSP.admin')"
+            Endorsement:
+                Type: Signature
+                Rule: "OR('IdemixMSP.peer')"
+
+
 ################################################################################
 #
 #   SECTION: Capabilities
@@ -337,5 +363,31 @@ Profiles:
             Organizations:
                 - *Org1
                 - *Org2
+            Capabilities:
+                <<: *ApplicationCapabilities
+
+    IdemixOrdererGenesis:
+        <<: *ChannelDefaults
+        Orderer:
+            <<: *OrdererDefaults
+            Organizations:
+                - *OrdererOrg
+            Capabilities:
+                <<: *OrdererCapabilities
+        Consortiums:
+            IdemixConsortium:
+                Organizations:
+                    - *Org1
+                    - *Org2
+                    - *Idemix
+    IdemixChannel:
+        Consortium: IdemixConsortium
+        <<: *ChannelDefaults
+        Application:
+            <<: *ApplicationDefaults
+            Organizations:
+                - *Org1
+                - *Org2
+                - *Idemix
             Capabilities:
                 <<: *ApplicationCapabilities
