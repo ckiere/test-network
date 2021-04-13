@@ -2,7 +2,7 @@
 name: test-network-org1
 version: 1.0.0
 channels:
-  idemixchannel:
+  auction:
     peers:
       peer0.org1.example.com:
         endorsingPeer: true

@@ -1,6 +1,7 @@
 package dacidentity
 
 import (
+	"fmt"
 	"github.com/golang/protobuf/proto"
 
 	"github.com/dbogatov/dac-lib/dac"
@@ -21,6 +22,33 @@ type User struct {
 	H         interface{}
 	Ys        [][]interface{}
 	RootPk    interface{}
+}
+
+// Create user from configuration
+func CreateUser(dacConfig DacConfig, credConfig CredentialsConfig, id string, mspID string) (*User, error) {
+	ys, err := dacConfig.Ys()
+	if err != nil {
+		return nil, err
+	}
+	rootPk, err := dacConfig.RootPk()
+	if err != nil {
+		return nil, err
+	}
+	h, err := dacConfig.H()
+	if err != nil {
+		return nil, err
+	}
+	user := &User{
+		id: id,
+		mspID: mspID,
+		creds: *credConfig.Credentials(),
+		sk: credConfig.Sk(),
+		H: h,
+		Ys: ys,
+		RootPk: rootPk,
+	}
+	user.updateNymIdentity()
+	return user, nil
 }
 
 // Identifier returns user identifier
@@ -104,6 +132,7 @@ func (u *User) updateNymIdentity() {
 
 	u.nymKey = NymKey{privateKey: u.sk, privateNymKey: skNym, publicNymKey: pkNym, h: u.H}
 	u.tempProof = proof
+	fmt.Println("Nym key updated")
 }
 
 type NymKey struct {

@@ -2,6 +2,7 @@ package dacidentity
 
 import (
 	"errors"
+	"fmt"
 	"github.com/dbogatov/dac-lib/dac"
 	"github.com/hyperledger/fabric-sdk-go/pkg/common/providers/core"
 	"github.com/hyperledger/fabric-sdk-go/pkg/core/cryptosuite"
@@ -40,6 +41,8 @@ func (mgr *SigningManager) Sign(object []byte, key core.Key) ([]byte, error) {
 	if !ok {
 		return nil, errors.New("Key must be a NymKey")
 	}
+	fmt.Println(digest)
+	fmt.Println(dac.PointToBytes(nymKey.PublicNymKey()))
 	signature := dac.SignNym(prg, nymKey.PublicNymKey(), nymKey.PrivateNymKey(), nymKey.PrivateKey(), nymKey.H(), digest)
 	return signature.ToBytes(), nil
 }

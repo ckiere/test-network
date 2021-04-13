@@ -36,7 +36,7 @@ services:
 
   orderer.example.com:
     container_name: orderer.example.com
-    image: hyperledger/fabric-orderer:$IMAGE_TAG
+    image: fabric-dac-orderer:1.0 #hyperledger/fabric-orderer:$IMAGE_TAG
     environment:
       - FABRIC_LOGGING_SPEC=INFO
       - ORDERER_GENERAL_LISTENADDRESS=0.0.0.0
@@ -59,7 +59,7 @@ services:
     working_dir: /opt/gopath/src/github.com/hyperledger/fabric
     command: orderer
     volumes:
-        - ./system-genesis-block/idemixgenesis.block:/var/hyperledger/orderer/orderer.genesis.block
+        - ./system-genesis-block/dacgenesis.block:/var/hyperledger/orderer/orderer.genesis.block
         - ./organizations/ordererOrganizations/example.com/orderers/orderer.example.com/msp:/var/hyperledger/orderer/msp
         - ./organizations/ordererOrganizations/example.com/orderers/orderer.example.com/tls/:/var/hyperledger/orderer/tls
         - orderer.example.com:/var/hyperledger/production/orderer
@@ -69,7 +69,7 @@ services:
 
   peer0.org1.example.com:
     container_name: peer0.org1.example.com
-    image: hyperledger/fabric-peer:$IMAGE_TAG
+    image: fabric-dac-peer:1.0 #hyperledger/fabric-peer:$IMAGE_TAG
     environment:
       #Generic peer variables
       - CORE_VM_ENDPOINT=unix:///host/var/run/docker.sock
@@ -105,7 +105,7 @@ services:
 
   peer0.org2.example.com:
     container_name: peer0.org2.example.com
-    image: hyperledger/fabric-peer:$IMAGE_TAG
+    image: fabric-dac-peer:1.0 #hyperledger/fabric-peer:$IMAGE_TAG
     environment:
       #Generic peer variables
       - CORE_VM_ENDPOINT=unix:///host/var/run/docker.sock
