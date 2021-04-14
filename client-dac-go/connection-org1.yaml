@@ -29,7 +29,7 @@ organizations:
     mspid: Org1MSP
     peers:
     - peer0.org1.example.com
-    cryptoPath: peerOrganizations/org1.example.com/users/{username}@org1.example.com/msp
+    cryptoPath: notAPath #peerOrganizations/org1.example.com/users/{username}@org1.example.com/msp
   Org2:
     mspid: Org2MSP
     peers:
