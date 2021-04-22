@@ -1,8 +1,10 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/ckiere/test-network/client-dac-go/commitment"
 	"github.com/ckiere/test-network/client-dac-go/dacidentity"
 	"github.com/dbogatov/dac-lib/dac"
 	"github.com/dbogatov/fabric-amcl/amcl"
@@ -13,6 +15,8 @@ import (
 	"github.com/hyperledger/fabric-sdk-go/pkg/fabsdk"
 	"io/ioutil"
 	"os"
+	"strconv"
+	"time"
 )
 
 const configFileName = "DacConfig.json"
@@ -38,8 +42,13 @@ func main() {
 				fmt.Println("Wrong number of arguments")
 			}
 		} else if cmd == "client" {
-			if argc == 3 {
-				launchClient(os.Args[2])
+			if argc == 5 {
+				price, err := strconv.Atoi(os.Args[4])
+				if err == nil && price > 0 {
+					launchClient(os.Args[2], os.Args[3], price)
+				} else {
+					fmt.Println("Invalid price")
+				}
 			} else {
 				fmt.Println("Wrong number of arguments")
 			}
@@ -51,7 +60,7 @@ func main() {
 	}
 }
 
-func launchClient(username string) {
+func launchClient(username string, auctionID string, price int) {
 	configBytes, _ := ioutil.ReadFile(configFileName)
 	dacConfig, err := dacidentity.CreateConfigFromBytes(configBytes)
 	userConfigBytes, _ := ioutil.ReadFile(username + ".json")
@@ -64,15 +73,29 @@ func launchClient(username string) {
 		panic(err)
 	}
 
-
 	dacClientChannelContext := sdk.ChannelContext(channelName, fabsdk.WithIdentity(user))
 	client, err := channel.New(dacClientChannelContext)
 	if err != nil {
 		panic(err)
 	}
 
+	// commit to a bid
+	com, r := commitment.Commit(price)
+	comBase64 := base64.StdEncoding.EncodeToString(com)
+	response, _ := client.Execute(channel.Request{ChaincodeID: "blindauction", Fcn: "SendCommitment", Args: [][]byte{[]byte(auctionID), []byte(comBase64)}},
+		channel.WithRetry(retry.DefaultChannelOpts), channel.WithTargetEndpoints("peer0.org1.example.com", "peer0.org2.example.com"))
+	txID := response.Payload
 
-	client.Query(channel.Request{ChaincodeID: "test1", Fcn: "QueryAuction", Args: [][]byte{[]byte("bla")}},
+	// renew the nym identity
+	user.UpdateNymIdentity()
+
+	// pause to wait for the second phase of the auction
+	time.Sleep(time.Duration(30) * time.Second)
+
+	// reveal the bid
+	rBase64 := base64.StdEncoding.EncodeToString(r)
+	client.Execute(channel.Request{ChaincodeID: "blindauction", Fcn: "RevealBid", Args: [][]byte{[]byte(auctionID), txID,
+		[]byte(""), []byte(strconv.Itoa(price)), []byte(rBase64)}},
 		channel.WithRetry(retry.DefaultChannelOpts), channel.WithTargetEndpoints("peer0.org1.example.com", "peer0.org2.example.com"))
 }
 

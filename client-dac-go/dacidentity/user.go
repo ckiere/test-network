@@ -47,7 +47,7 @@ func CreateUser(dacConfig DacConfig, credConfig CredentialsConfig, id string, ms
 		Ys: ys,
 		RootPk: rootPk,
 	}
-	user.updateNymIdentity()
+	user.UpdateNymIdentity()
 	return user, nil
 }
 
@@ -63,9 +63,6 @@ func (u *User) Verify(msg []byte, sig []byte) error {
 
 // Serialize converts an identity to bytes
 func (u *User) Serialize() ([]byte, error) {
-	// When an identity is serialized, it is going to be used in a message
-	// We update the nym key to make sure it is not reused
-	u.updateNymIdentity()
 	// Serialize the identity
 	nymBytes := dac.PointToBytes(u.nymKey.PublicNymKey())
 	serializedDacIdentity := &pb_msp.SerializedIdemixIdentity{
@@ -108,7 +105,7 @@ func (u *User) Sign(msg []byte) ([]byte, error) {
 	return nil, errors.New("Sign() function not implemented")
 }
 
-func (u *User) updateNymIdentity() {
+func (u *User) UpdateNymIdentity() {
 
 	prg := NewRand()
 

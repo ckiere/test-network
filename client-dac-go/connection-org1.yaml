@@ -2,6 +2,10 @@
 name: test-network-org1
 version: 1.0.0
 channels:
+  _default:
+    policies:
+      eventService:
+        peerMonitorPeriod: 0
   auction:
     peers:
       peer0.org1.example.com:
@@ -17,6 +21,10 @@ client:
   
   logging:
     level: debug
+  global:
+    cache:
+      discovery: 10m
+      channelMembership: 10m
   cryptoconfig:
     path: ${FABRIC_MSP_ROOT}
   connection:
@@ -36,10 +44,33 @@ organizations:
     - peer0.org2.example.com
     cryptoPath: notAPath
 peers:
+  _default:
+    grpcOptions:
+      allow-insecure: true
   peer0.org1.example.com:
     url: grpc://localhost:7051
   peer0.org2.example.com:
     url: grpc://localhost:9051
 orderers:
+  _default:
+    grpcOptions:
+      allow-insecure: true
   orderer.example.com:
     url: grpc://localhost:7050
+
+entityMatchers:
+  peer:
+    - pattern: peer0.org1.example.com:(\d+)
+      urlSubstitutionExp: localhost:${1}
+      mappedHost: peer0.org1.example.com
+
+    - pattern: peer0.org2.example.com:(\d+)
+      urlSubstitutionExp: localhost:${1}
+      mappedHost: peer0.org2.example.com
+  orderer:
+    - pattern: orderer.example.com
+      urlSubstitutionExp: localhost:7050
+      mappedHost: orderer.example.com
+    - pattern: orderer.example.com:7050
+      urlSubstitutionExp: localhost:7050
+      mappedHost: orderer.example.com
