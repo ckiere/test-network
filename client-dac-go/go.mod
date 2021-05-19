@@ -9,6 +9,7 @@ require (
 	github.com/hyperledger/fabric-protos-go v0.0.0-20200707132912-fee30f3ccd23
 	github.com/hyperledger/fabric-sdk-go v1.0.0
 	github.com/pkg/errors v0.8.1
+	golang.org/x/crypto v0.0.0-20200221231518-2aa609cf4a9d
 )
 
 replace github.com/hyperledger/fabric-sdk-go v1.0.0 => ./internal-fabric-sdk-go

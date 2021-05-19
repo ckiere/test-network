@@ -8,8 +8,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"github.com/hyperledger/fabric-samples/auction/chaincode-go/commitment"
-
 	"github.com/hyperledger/fabric-contract-api-go/contractapi"
 )
 
@@ -17,27 +15,31 @@ type SmartContract struct {
 	contractapi.Contract
 }
 
+const SellerPkSize = 32
+
 // Auction data
 type Auction struct {
-	Type         string             `json:"objectType"`
-	ItemSold     string             `json:"item"`
-	Seller       string             `json:"seller"`
-	Commitments  map[string] string `json:"commitments"`
-	RevealedBids map[string]Bid     `json:"revealedBids"`
-	WinningBid   string             `json:"winningBid"`
-	Status       string             `json:"status"`
+	Type         string                    `json:"objectType"`
+	ItemSold     string                    `json:"item"`
+	Seller       string                    `json:"seller"`
+	SellerPk	 [SellerPkSize]byte        `json:"sellerPk"`
+	Commitments  map[string] string        `json:"commitments"`
+	EncryptedBids map[string] EncryptedBid `json:"encryptedBids"`
+	WinningBid   string                    `json:"winningBid"`
+	Proof        []byte
+	Status       string                    `json:"status"`
 }
 
-// Bid is the structure of a revealed bid
-type Bid struct {
+// EncryptedBid contains the values needed to open a commitment to a bid, encrypted with the public key of the seller
+type EncryptedBid struct {
 	Type     string `json:"objectType"`
-	Price    int    `json:"price"`
+	Data     []byte    `json:"data"`
 	Bidder   string `json:"bidder"`
 }
 
 // CreateAuction creates on auction on the public channel. The identity that
 // submits the transaction becomes the seller of the auction
-func (s *SmartContract) CreateAuction(ctx contractapi.TransactionContextInterface, auctionID string, itemsold string) error {
+func (s *SmartContract) CreateAuction(ctx contractapi.TransactionContextInterface, auctionID, itemsold, sellerPk string) error {
 
 	// get ID of submitting client
 	clientID, err := ctx.GetClientIdentity().GetID()
@@ -51,16 +53,25 @@ func (s *SmartContract) CreateAuction(ctx contractapi.TransactionContextInterfac
 		return fmt.Errorf("failed to get client identity %v", err)
 	}
 
+	// get seller public key
+	pkBytes, err := base64.StdEncoding.DecodeString(sellerPk)
+	if err != nil || len(pkBytes) != SellerPkSize {
+		return fmt.Errorf("invalid seller public key")
+	}
+	var sellerPkBytes [SellerPkSize]byte
+	copy(sellerPkBytes[:], pkBytes)
+
 	// Create auction
 	coms := make(map[string] string)
-	revealedBids := make(map[string]Bid)
+	revealedBids := make(map[string]EncryptedBid)
 
 	auction := Auction{
 		Type:         "auction",
 		ItemSold:     itemsold,
 		Seller:       clientID,
+		SellerPk:     sellerPkBytes,
 		Commitments:  coms,
-		RevealedBids: revealedBids,
+		EncryptedBids: revealedBids,
 		WinningBid:   "",
 		Status:       "open",
 	}
@@ -119,7 +130,7 @@ func (s *SmartContract) SendCommitment(ctx contractapi.TransactionContextInterfa
 }
 
 // RevealBid is used by a bidder to reveal their bid after the auction is closed
-func (s *SmartContract) RevealBid(ctx contractapi.TransactionContextInterface, auctionID string, txID string, bidder string, price int, rand string) error {
+func (s *SmartContract) RevealBid(ctx contractapi.TransactionContextInterface, auctionID string, txID string, bidder string, data string) error {
 	// get auction from public state
 	auctionBytes, err := ctx.GetStub().GetState(auctionID)
 	if err != nil {
@@ -141,40 +152,35 @@ func (s *SmartContract) RevealBid(ctx contractapi.TransactionContextInterface, a
 		return fmt.Errorf("cannot reveal bid for open or ended auction")
 	}
 
-	// check the offered price is valid
-	if price <= 0 {
-		return fmt.Errorf("invalid price")
-	}
-
-	// check the commitment from the state
-	com, exists := auctionJSON.Commitments[txID]
+	// check the commitment exists in the state
+	_, exists := auctionJSON.Commitments[txID]
 	if !exists {
 		return fmt.Errorf("commitment does not exist")
 	}
-	// decode base64 commitment and randomness
+	/*// decode base64 commitment and randomness
 	comBytes, err := base64.StdEncoding.DecodeString(com)
 	if err != nil {
 		return fmt.Errorf("invalid commitment format")
-	}
-	randBytes, err := base64.StdEncoding.DecodeString(rand)
+	}*/
+	dataBytes, err := base64.StdEncoding.DecodeString(data)
 	if err != nil {
 		return fmt.Errorf("invalid randomness format")
 	}
 	// check the commitment is valid
-	if !commitment.CheckCommit(comBytes, price, randBytes) {
+	/*if !crypto.CheckCommit(comBytes, price, randBytes) {
 		return fmt.Errorf("invalid bid or rand")
-	}
+	}*/
 
 	// add the new revealed bid to the list
-	NewBid := Bid{
+	NewBid := EncryptedBid{
 		Type:     "bid",
-		Price:    price,
+		Data:    dataBytes,
 		Bidder:   bidder,
 	}
-	revealedBids := make(map[string]Bid)
-	revealedBids = auctionJSON.RevealedBids
-	revealedBids[txID] = NewBid
-	auctionJSON.RevealedBids = revealedBids
+	encryptedBids := make(map[string]EncryptedBid)
+	encryptedBids = auctionJSON.EncryptedBids
+	encryptedBids[txID] = NewBid
+	auctionJSON.EncryptedBids = encryptedBids
 
 	newAuctionBytes, _ := json.Marshal(auctionJSON)
 
@@ -236,8 +242,7 @@ func (s *SmartContract) CloseAuction(ctx contractapi.TransactionContextInterface
 	return nil
 }
 
-// EndAuction both changes the auction status to ended and calculates the winners
-// of the auction
+// EndAuction changes the status to ended
 func (s *SmartContract) EndAuction(ctx contractapi.TransactionContextInterface, auctionID string) error {
 
 	auctionBytes, err := ctx.GetStub().GetState(auctionID)
@@ -274,29 +279,66 @@ func (s *SmartContract) EndAuction(ctx contractapi.TransactionContextInterface, 
 	}
 
 	// get the list of revealed bids
-	revealedBidMap := auctionJSON.RevealedBids
-	if len(auctionJSON.RevealedBids) == 0 {
+	if len(auctionJSON.EncryptedBids) == 0 {
 		return fmt.Errorf("No bids have been revealed, cannot end auction: %v", err)
 	}
-
-	bestPrice := 0
-	// determine the highest bid
-	// TODO ZKP
-
-	for id, bid := range revealedBidMap {
-		if bid.Price > bestPrice {
-			bestPrice = bid.Price
-			auctionJSON.WinningBid = id
-		}
-	}
-
 	auctionJSON.Status = "ended"
 
-	closedAuction, _ := json.Marshal(auctionJSON)
+	endedAuction, _ := json.Marshal(auctionJSON)
 
-	err = ctx.GetStub().PutState(auctionID, closedAuction)
+	err = ctx.GetStub().PutState(auctionID, endedAuction)
 	if err != nil {
-		return fmt.Errorf("failed to close auction: %v", err)
+		return fmt.Errorf("failed to end auction: %v", err)
+	}
+	return nil
+}
+
+// DeclareWinner sets the winner of an auction
+func (s *SmartContract) DeclareWinner(ctx contractapi.TransactionContextInterface, auctionID, winningBidId, proof string) error {
+	auctionBytes, err := ctx.GetStub().GetState(auctionID)
+	if err != nil {
+		return fmt.Errorf("failed to get auction %v: %v", auctionID, err)
+	}
+
+	if auctionBytes == nil {
+		return fmt.Errorf("Auction interest object %v not found", auctionID)
+	}
+
+	var auctionJSON Auction
+	err = json.Unmarshal(auctionBytes, &auctionJSON)
+	if err != nil {
+		return fmt.Errorf("failed to create auction object JSON: %v", err)
+	}
+
+	// Check that the auction is being ended by the seller
+
+	// get ID of submitting client
+	clientID, err := ctx.GetClientIdentity().GetID()
+	if err != nil {
+		return fmt.Errorf("failed to get client identity %v", err)
+	}
+
+	Seller := auctionJSON.Seller
+	if Seller != clientID {
+		return fmt.Errorf("auction can only be ended by seller: %v", err)
+	}
+
+	Status := auctionJSON.Status
+	if Status != "ended" {
+		return fmt.Errorf("can only declare the winner of an ended auction")
+	}
+	// Set the winner
+	proofBytes, err := base64.StdEncoding.DecodeString(proof)
+	if err != nil {
+		return fmt.Errorf("invalid proof format")
+	}
+	auctionJSON.Proof = proofBytes
+	auctionJSON.WinningBid = winningBidId
+	// Save auction
+	endedAuction, _ := json.Marshal(auctionJSON)
+	err = ctx.GetStub().PutState(auctionID, endedAuction)
+	if err != nil {
+		return fmt.Errorf("failed to set auction winner: %v", err)
 	}
 	return nil
 }

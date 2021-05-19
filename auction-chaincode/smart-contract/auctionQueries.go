@@ -12,23 +12,42 @@ import (
 )
 
 // QueryAuction allows all members of the channel to read a public auction
-func (s *SmartContract) QueryAuction(ctx contractapi.TransactionContextInterface, auctionID string) (*Auction, error) {
+func (s *SmartContract) QueryAuction(ctx contractapi.TransactionContextInterface, auctionID string) (string, error) {
 
 	auctionJSON, err := ctx.GetStub().GetState(auctionID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get auction object %v: %v", auctionID, err)
+		return "", fmt.Errorf("failed to get auction object %v: %v", auctionID, err)
 	}
 	if auctionJSON == nil {
-		return nil, fmt.Errorf("auction does not exist")
+		return "", fmt.Errorf("auction does not exist")
+	}
+
+	/*var auction *Auction
+	err = json.Unmarshal(auctionJSON, &auction)
+	if err != nil {
+		return nil, err
+	}*/
+
+	return string(auctionJSON), nil
+}
+
+func (s *SmartContract) QueryAuctioneerPk(ctx contractapi.TransactionContextInterface, auctionID string) ([SellerPkSize]byte, error) {
+	var nullKey [32]byte
+	auctionJSON, err := ctx.GetStub().GetState(auctionID)
+	if err != nil {
+		return nullKey, fmt.Errorf("failed to get auction object %v: %v", auctionID, err)
+	}
+	if auctionJSON == nil {
+		return nullKey, fmt.Errorf("auction does not exist")
 	}
 
 	var auction *Auction
 	err = json.Unmarshal(auctionJSON, &auction)
 	if err != nil {
-		return nil, err
+		return nullKey, err
 	}
 
-	return auction, nil
+	return auction.SellerPk, nil
 }
 
 

@@ -1,4 +1,4 @@
-package commitment
+package crypto
 
 import (
 	"bytes"

@@ -4,7 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"github.com/ckiere/test-network/client-dac-go/commitment"
+	"github.com/ckiere/test-network/client-dac-go/crypto"
 	"github.com/ckiere/test-network/client-dac-go/dacidentity"
 	"github.com/dbogatov/dac-lib/dac"
 	"github.com/dbogatov/fabric-amcl/amcl"
@@ -79,23 +79,38 @@ func launchClient(username string, auctionID string, price int) {
 		panic(err)
 	}
 
+	// get the auctioneer public key to encrypt the bid
+	response, _ := client.Query(channel.Request{ChaincodeID: "blindauction", Fcn: "QueryAuctioneerPk", Args: [][]byte{[]byte(auctionID)}},
+		channel.WithRetry(retry.DefaultChannelOpts), channel.WithTargetEndpoints("peer0.org1.example.com", "peer0.org2.example.com"))
+	var auctioneerPk [32]byte
+	copy(auctioneerPk[:], response.Payload)
+
+	// renew the nym identity
+	//user.UpdateNymIdentity()
+
 	// commit to a bid
-	com, r := commitment.Commit(price)
+	com, r := crypto.Commit(price)
 	comBase64 := base64.StdEncoding.EncodeToString(com)
-	response, _ := client.Execute(channel.Request{ChaincodeID: "blindauction", Fcn: "SendCommitment", Args: [][]byte{[]byte(auctionID), []byte(comBase64)}},
+	response, _ = client.Execute(channel.Request{ChaincodeID: "blindauction", Fcn: "SendCommitment", Args: [][]byte{[]byte(auctionID), []byte(comBase64)}},
 		channel.WithRetry(retry.DefaultChannelOpts), channel.WithTargetEndpoints("peer0.org1.example.com", "peer0.org2.example.com"))
 	txID := response.Payload
 
 	// renew the nym identity
-	user.UpdateNymIdentity()
+	//user.UpdateNymIdentity()
 
 	// pause to wait for the second phase of the auction
 	time.Sleep(time.Duration(30) * time.Second)
 
-	// reveal the bid
-	rBase64 := base64.StdEncoding.EncodeToString(r)
+	// encrypt the bid
+	encryptedBid, err := crypto.Encrypt(price, r, &auctioneerPk)
+	if err != nil {
+		panic(err)
+	}
+
+	// reveal the encrypted bid
+	encryptedBidBase64 := base64.StdEncoding.EncodeToString(encryptedBid)
 	client.Execute(channel.Request{ChaincodeID: "blindauction", Fcn: "RevealBid", Args: [][]byte{[]byte(auctionID), txID,
-		[]byte(""), []byte(strconv.Itoa(price)), []byte(rBase64)}},
+		[]byte(""), []byte(encryptedBidBase64)}},
 		channel.WithRetry(retry.DefaultChannelOpts), channel.WithTargetEndpoints("peer0.org1.example.com", "peer0.org2.example.com"))
 }
 
