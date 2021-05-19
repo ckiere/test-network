@@ -1,4 +1,4 @@
-package commitment
+package crypto
 
 import (
 	"bytes"
@@ -7,9 +7,11 @@ import (
 	"encoding/binary"
 )
 
+const RSize = 4
+
 func Commit(value int) ([]byte, []byte) {
 	// get randomness from cryptographically secure generator
-	r := make([]byte, 4)
+	r := make([]byte, RSize)
 	_, err := rand.Read(r)
 	if err != nil {
 		panic(err)
