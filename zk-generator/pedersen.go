@@ -1,4 +1,4 @@
-package crypto
+package main
 
 import (
 	"crypto/rand"
@@ -13,6 +13,28 @@ var order = curveParams.Order
 var hx = new(fr.Element).SetString("51295569138718539371092613972351202357326289069440880621285444911501458459494")
 var hy = new(fr.Element).SetString("49831129265363587078046764490824666482509464638593900758877649985443393819454")
 var h = twistededwards.NewPointAffine(*hx, *hy)
+
+// this is how h was generated
+/*p := twistededwards.PointAffine{}
+base := twistededwards.GetEdwardsCurve().Base
+order := twistededwards.GetEdwardsCurve().Order
+order.Mul(&order, big.NewInt(1))
+hash := sha256.New()
+hash.Write(base.Marshal())
+d := hash.Sum(nil)
+d[0] = 0
+_, err := p.SetBytes(d)
+fmt.Println(err)
+p.ScalarMul(&p, big.NewInt(8))
+fmt.Println(p.X.String())
+fmt.Println(p.Y.String())
+fmt.Println(p.IsOnCurve())
+p.ScalarMul(&p, &order)
+fmt.Println(p.X.String())
+fmt.Println(p.Y.String())
+fmt.Println(p.IsOnCurve())
+*/
+
 
 func Commit(value int) (*twistededwards.PointAffine, *big.Int, error) {
 	p := twistededwards.PointAffine{}
@@ -71,39 +93,6 @@ func ProveCommit(value int, r *big.Int, comBytes,  m []byte) (*twistededwards.Po
 	s2.Add(s2, r2)
 	s2.Mod(s2, &order)
 	return &t, s1, s2, nil
-}
-
-func CommitProofToBytes(t *twistededwards.PointAffine, s1, s2 *big.Int) []byte {
-	proofBytes := make([]byte, 48)
-	tBytes := t.Marshal()
-	copy(proofBytes[:32], tBytes)
-	s1Bytes := s1.Bytes()
-	copy(proofBytes[32:40], s1Bytes)
-	s2Bytes := s2.Bytes()
-	copy(proofBytes[40:48], s2Bytes)
-	return proofBytes
-}
-
-func CheckCommitProofBytes(proofBytes, comBytes, m []byte) bool {
-	if len(proofBytes) != 48 {
-		return false
-	}
-	tBytes := proofBytes[:32]
-	// transform comBytes into a point and check it is on the curve
-	t := twistededwards.PointAffine{}
-	err := t.Unmarshal(tBytes)
-	if err != nil || !t.IsOnCurve() {
-		return false
-	}
-	s1Bytes := proofBytes[32:40]
-	s1 := new(big.Int)
-	s1.SetBytes(s1Bytes)
-	s1.Mod(s1, &order)
-	s2Bytes := proofBytes[40:48]
-	s2 := new(big.Int)
-	s2.SetBytes(s2Bytes)
-	s2.Mod(s1, &order)
-	return CheckCommitProof(&t, s1, s2, comBytes, m)
 }
 
 func CheckCommitProof(t *twistededwards.PointAffine, s1, s2 *big.Int, comBytes, m []byte) bool {

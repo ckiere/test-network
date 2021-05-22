@@ -7,7 +7,7 @@ cryptogen generate --config=./organizations/cryptogen/crypto-config-orderer.yaml
 configtxgen -profile TwoOrgsOrdererGenesis -channelID system-channel -outputBlock ./system-genesis-block/genesis.block -configPath configtx
 - Launch network
 docker-compose up
-- on WSL, syncing the time is somteime needed
+- on WSL, syncing the time is sometimes needed
 sudo hwclock -s
 - Delete the whole network
 docker-compose down -v

@@ -89,8 +89,11 @@ func launchClient(username string, auctionID string, price int) {
 	//user.UpdateNymIdentity()
 
 	// commit to a bid
-	com, r := crypto.Commit(price)
-	comBase64 := base64.StdEncoding.EncodeToString(com)
+	com, r, err := crypto.Commit(price)
+	if err != nil {
+		panic(err)
+	}
+	comBase64 := base64.StdEncoding.EncodeToString(com.Marshal())
 	response, _ = client.Execute(channel.Request{ChaincodeID: "blindauction", Fcn: "SendCommitment", Args: [][]byte{[]byte(auctionID), []byte(comBase64)}},
 		channel.WithRetry(retry.DefaultChannelOpts), channel.WithTargetEndpoints("peer0.org1.example.com", "peer0.org2.example.com"))
 	txID := response.Payload

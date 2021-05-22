@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/hyperledger/fabric-contract-api-go/contractapi"
+	"github.com/hyperledger/fabric-samples/auction/chaincode-go/crypto"
 )
 
 type SmartContract struct {
@@ -23,7 +24,7 @@ type Auction struct {
 	ItemSold     string                    `json:"item"`
 	Seller       string                    `json:"seller"`
 	SellerPk	 [SellerPkSize]byte        `json:"sellerPk"`
-	Commitments  map[string] string        `json:"commitments"`
+	Commitments  map[string] []byte        `json:"commitments"`
 	EncryptedBids map[string] EncryptedBid `json:"encryptedBids"`
 	WinningBid   string                    `json:"winningBid"`
 	Proof        []byte
@@ -62,7 +63,7 @@ func (s *SmartContract) CreateAuction(ctx contractapi.TransactionContextInterfac
 	copy(sellerPkBytes[:], pkBytes)
 
 	// Create auction
-	coms := make(map[string] string)
+	coms := make(map[string] []byte)
 	revealedBids := make(map[string]EncryptedBid)
 
 	auction := Auction{
@@ -97,8 +98,19 @@ func (s *SmartContract) CreateAuction(ctx contractapi.TransactionContextInterfac
 }
 
 // SendCommitment is used by the anonymous bidders to submit a commitment to a bid
-func (s *SmartContract) SendCommitment(ctx contractapi.TransactionContextInterface, auctionID string, commitment string) (string, error) {
-
+func (s *SmartContract) SendCommitment(ctx contractapi.TransactionContextInterface, auctionID, commitment, proof string) (string, error) {
+	// verify the proof of knowledge of opening values
+	comBytes, err := base64.StdEncoding.DecodeString(commitment)
+	if err != nil {
+		return "", err
+	}
+	proofBytes, err := base64.StdEncoding.DecodeString(proof)
+	if err != nil {
+		return "", err
+	}
+	if !crypto.CheckCommitProofBytes(proofBytes, comBytes, nil) {
+		return "", fmt.Errorf("invalid proof")
+	}
 	// get the auction from state
 	auctionBytes, err := ctx.GetStub().GetState(auctionID)
 	var auctionJSON Auction
@@ -119,7 +131,7 @@ func (s *SmartContract) SendCommitment(ctx contractapi.TransactionContextInterfa
 
 	// use the transaction ID as a key for the commitment
 	txID := ctx.GetStub().GetTxID()
-	auctionJSON.Commitments[txID] = commitment
+	auctionJSON.Commitments[txID] = comBytes
 
 	newAuctionBytes, _ := json.Marshal(auctionJSON)
 	err = ctx.GetStub().PutState(auctionID, newAuctionBytes)
@@ -130,7 +142,12 @@ func (s *SmartContract) SendCommitment(ctx contractapi.TransactionContextInterfa
 }
 
 // RevealBid is used by a bidder to reveal their bid after the auction is closed
-func (s *SmartContract) RevealBid(ctx contractapi.TransactionContextInterface, auctionID string, txID string, bidder string, data string) error {
+func (s *SmartContract) RevealBid(ctx contractapi.TransactionContextInterface, auctionID, txID, bidder, data, proof string) error {
+	dataBytes, err := base64.StdEncoding.DecodeString(data)
+	if err != nil {
+		return fmt.Errorf("invalid data")
+	}
+
 	// get auction from public state
 	auctionBytes, err := ctx.GetStub().GetState(auctionID)
 	if err != nil {
@@ -153,24 +170,19 @@ func (s *SmartContract) RevealBid(ctx contractapi.TransactionContextInterface, a
 	}
 
 	// check the commitment exists in the state
-	_, exists := auctionJSON.Commitments[txID]
+	comBytes, exists := auctionJSON.Commitments[txID]
 	if !exists {
 		return fmt.Errorf("commitment does not exist")
 	}
-	/*// decode base64 commitment and randomness
-	comBytes, err := base64.StdEncoding.DecodeString(com)
-	if err != nil {
-		return fmt.Errorf("invalid commitment format")
-	}*/
-	dataBytes, err := base64.StdEncoding.DecodeString(data)
-	if err != nil {
-		return fmt.Errorf("invalid randomness format")
-	}
-	// check the commitment is valid
-	/*if !crypto.CheckCommit(comBytes, price, randBytes) {
-		return fmt.Errorf("invalid bid or rand")
-	}*/
 
+	// check the proof of knowledge of opening values
+	proofBytes, err := base64.StdEncoding.DecodeString(proof)
+	if err != nil {
+		return err
+	}
+	if !crypto.CheckCommitProofBytes(proofBytes, comBytes, dataBytes) {
+		return fmt.Errorf("invalid proof")
+	}
 	// add the new revealed bid to the list
 	NewBid := EncryptedBid{
 		Type:     "bid",

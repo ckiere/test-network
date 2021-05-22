@@ -22,12 +22,6 @@ func (s *SmartContract) QueryAuction(ctx contractapi.TransactionContextInterface
 		return "", fmt.Errorf("auction does not exist")
 	}
 
-	/*var auction *Auction
-	err = json.Unmarshal(auctionJSON, &auction)
-	if err != nil {
-		return nil, err
-	}*/
-
 	return string(auctionJSON), nil
 }
 

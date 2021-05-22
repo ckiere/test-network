@@ -1,57 +1,61 @@
 package main
 
 import (
-	"encoding/binary"
 	"fmt"
 	"github.com/consensys/gnark-crypto/ecc"
-	mimc2 "github.com/consensys/gnark-crypto/ecc/bn254/fr/mimc"
 	"github.com/consensys/gnark/backend"
 	"github.com/consensys/gnark/backend/groth16"
 	"github.com/consensys/gnark/frontend"
-	"github.com/consensys/gnark/std/hash/mimc"
+	"github.com/consensys/gnark/std/algebra/twistededwards"
 	"log"
 	"os"
 )
 
-const MaxBids = 50
+const MaxBids = 10
 
 type AuctionCircuit struct {
 	// struct tags on a variable is optional
 	// default uses variable name and secret visibility.
 	Values [MaxBids]frontend.Variable
 	Rs [MaxBids]frontend.Variable
-	Coms [MaxBids]frontend.Variable `gnark:",public"`
+	ComsX [MaxBids]frontend.Variable `gnark:",public"`
+	ComsY [MaxBids]frontend.Variable `gnark:",public"`
 	WinningValue frontend.Variable
 	WinningR frontend.Variable
-	WinningCom frontend.Variable `gnark:",public"`
+	WinningComX frontend.Variable `gnark:",public"`
+	WinningComY frontend.Variable `gnark:",public"`
 }
 
 // Define declares the circuit constraints
 func (circuit *AuctionCircuit) Define(curveID ecc.ID, cs *frontend.ConstraintSystem) error {
 	// constants
-	mc, _ := mimc.NewMiMC("seed", curveID)
-	shift := cs.Constant(1 << 32)
+	curve, _ := twistededwards.NewEdCurve(ecc.BLS12_381)
 	// check winning commitment
-	circuit.CheckCommitment(mc, circuit.WinningValue, circuit.WinningR, circuit.WinningCom, shift, cs)
+	circuit.CheckCommitment(curve, circuit.WinningValue, circuit.WinningR, circuit.WinningComX, circuit.WinningComY, cs)
 	// check all other bids (valid commitment and value lower than winning bid)
 	for i := 0; i < MaxBids; i++ {
-		circuit.CheckCommitment(mc, circuit.Values[i], circuit.Rs[i], circuit.Coms[i], shift, cs)
+		circuit.CheckCommitment(curve, circuit.Values[i], circuit.Rs[i], circuit.ComsX[i], circuit.ComsY[i], cs)
 		cs.AssertIsLessOrEqual(circuit.Values[i], circuit.WinningValue)
 	}
 	return nil
 }
 
-func (circuit *AuctionCircuit) CheckCommitment(mc mimc.MiMC, value, r, com, shift frontend.Variable, cs *frontend.ConstraintSystem) {
-	conc := cs.Add(cs.Mul(shift, r), value) // R || Value
-	hash := mc.Hash(cs, conc)
-	cs.AssertIsEqual(com, hash)
+func (circuit *AuctionCircuit) CheckCommitment(curve twistededwards.EdCurve, value, r, comX, comY frontend.Variable, cs *frontend.ConstraintSystem) {
+	// com = g^value h^r
+	com := twistededwards.Point{}
+	com.ScalarMulFixedBase(cs, curve.BaseX, curve.BaseY, value, curve)
+	temp := twistededwards.Point{}
+	temp.ScalarMulFixedBase(cs, hx, hy, r, curve)
+	com.AddGeneric(cs, &com, &temp, curve)
+	cs.AssertIsEqual(com.X, comX)
+	cs.AssertIsEqual(com.Y, comY)
 }
 
 func main() {
 	var circuit AuctionCircuit
 
 	// compiles our circuit into a R1CS
-	r1cs, err := frontend.Compile(ecc.BN254, backend.GROTH16, &circuit)
+	r1cs, err := frontend.Compile(ecc.BLS12_381, backend.GROTH16, &circuit)
 	if err != nil {
 		log.Fatalf("compilation of the circuit failed: %v", err)
 	}
@@ -87,6 +91,17 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+
+	testProof(r1cs, pk, vk)
+
+	/*com, r, _ := Commit(100)
+	fmt.Println(CheckCommit(100, r, com))
+	c, s1, s2, err := ProveCommit(100, r, com.Marshal(), nil)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(CheckCommitProof(c, s1, s2, com.Marshal(), nil))*/
+
 }
 
 func testProof(r1cs frontend.CompiledConstraintSystem, pk groth16.ProvingKey, vk groth16.VerifyingKey) {
@@ -96,30 +111,36 @@ func testProof(r1cs frontend.CompiledConstraintSystem, pk groth16.ProvingKey, vk
 	n := 10
 
 	winningValue := 500
-	r := []byte{10, 20, 30, 40} // just to test
+
 	witness.WinningValue.Assign(winningValue)
-	witness.WinningR.Assign(r)
-	winningCom := Commit(winningValue, r)
-	witness.WinningCom.Assign(winningCom)
-	solution.WinningCom.Assign(winningCom)
+	winningCom, winningR, _ := Commit(winningValue)
+	witness.WinningR.Assign(winningR)
+	witness.WinningComX.Assign(winningCom.X)
+	witness.WinningComY.Assign(winningCom.Y)
+	solution.WinningComX.Assign(winningCom.X)
+	solution.WinningComY.Assign(winningCom.Y)
 
 	for i := 0; i < n ; i++ {
 		value := 100 + i
 		witness.Values[i].Assign(value)
+		com, r, _ := Commit(value)
 		witness.Rs[i].Assign(r)
-		com := Commit(value, r)
-		witness.Coms[i].Assign(com)
-		solution.Coms[i].Assign(com)
+		witness.ComsX[i].Assign(com.X)
+		witness.ComsY[i].Assign(com.Y)
+		solution.ComsX[i].Assign(com.X)
+		solution.ComsY[i].Assign(com.Y)
 	}
 	// fill non used bids with a value of 0
 	for i := n; i < MaxBids ; i++ {
 		value := 0
-		r := []byte{0, 0, 0, 0}
+		com, r, _ := Commit(value)
 		witness.Values[i].Assign(value)
 		witness.Rs[i].Assign(r)
-		com := Commit(value, r)
-		witness.Coms[i].Assign(com)
-		solution.Coms[i].Assign(com)
+
+		witness.ComsX[i].Assign(com.X)
+		witness.ComsY[i].Assign(com.Y)
+		solution.ComsX[i].Assign(com.X)
+		solution.ComsY[i].Assign(com.Y)
 	}
 	proof, err := groth16.Prove(r1cs, pk, &witness)
 	if err != nil {
@@ -130,13 +151,4 @@ func testProof(r1cs frontend.CompiledConstraintSystem, pk groth16.ProvingKey, vk
 	if err != nil {
 		log.Fatalf("verify failed :%v", err)
 	}
-}
-
-func Commit(value int, r []byte) []byte {
-	valueBytes := make([]byte, 4)
-	binary.BigEndian.PutUint32(valueBytes, uint32(value))
-	mc := mimc2.NewMiMC("seed")
-	mc.Write(r)
-	mc.Write(valueBytes)
-	return mc.Sum(nil)
 }
