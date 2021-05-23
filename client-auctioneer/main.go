@@ -24,14 +24,12 @@ import (
 )
 
 const channelName = "auction"
+const chaincodeID = "blindauction"
 const SellerPkSize = 32
 const MaxBids = 10
 
-var curveParams = twistededwards2.GetEdwardsCurve()
-var order = curveParams.Order
 var hx = new(fr.Element).SetString("51295569138718539371092613972351202357326289069440880621285444911501458459494")
 var hy = new(fr.Element).SetString("49831129265363587078046764490824666482509464638593900758877649985443393819454")
-var h = twistededwards2.NewPointAffine(*hx, *hy)
 
 // Auction data
 type Auction struct {
@@ -41,9 +39,16 @@ type Auction struct {
 	SellerPk	 [SellerPkSize]byte        `json:"sellerPk"`
 	Commitments  map[string] []byte        `json:"commitments"`
 	EncryptedBids map[string] EncryptedBid `json:"encryptedBids"`
+	InvalidSet   string                    `json:"invalidSet"`
 	WinningBid   string                    `json:"winningBid"`
-	Proof        []byte
+	Proof        []byte                    `json:"proof"`
 	Status       string                    `json:"status"`
+}
+
+type Bid struct {
+	Type     string `json:"objectType"`
+	Price    int    `json:"price"`
+	R        big.Int `json:"r"`
 }
 
 // EncryptedBid contains the values needed to open a commitment to a bid, encrypted with the public key of the seller
@@ -96,8 +101,8 @@ func main() {
 	if argc > 1 {
 		cmd := os.Args[1]
 		if cmd == "client" {
-			if argc == 5 {
-				launchClient(os.Args[2], os.Args[3], os.Args[4])
+			if argc > 5 {
+				launchClient(os.Args[2], os.Args[3], os.Args[4], os.Args[5:])
 			} else {
 				fmt.Println("Wrong number of arguments")
 			}
@@ -109,7 +114,7 @@ func main() {
 	}
 }
 
-func launchClient(username string, auctionID, itemName string) {
+func launchClient(username string, auctionID, itemName string, endpoints []string) {
 	sdk, err := fabsdk.New(config.FromFile("connection-org1.yaml"))
 	if err != nil {
 		panic(err)
@@ -128,25 +133,25 @@ func launchClient(username string, auctionID, itemName string) {
 	}
 	pkBase64 := base64.StdEncoding.EncodeToString(pk[:])
 	// start auction
-	client.Execute(channel.Request{ChaincodeID: "blindauction", Fcn: "CreateAuction", Args: [][]byte{[]byte(auctionID),
+	client.Execute(channel.Request{ChaincodeID: chaincodeID, Fcn: "CreateAuction", Args: [][]byte{[]byte(auctionID),
 		[]byte(itemName), []byte(pkBase64)}},
-		channel.WithRetry(retry.DefaultChannelOpts), channel.WithTargetEndpoints("peer0.org1.example.com", "peer0.org2.example.com"))
+		channel.WithRetry(retry.DefaultChannelOpts), channel.WithTargetEndpoints(endpoints...))
 	// pause to wait for the second phase of the auction
 	time.Sleep(time.Duration(30) * time.Second)
 
 	// close auction
-	client.Execute(channel.Request{ChaincodeID: "blindauction", Fcn: "CloseAuction", Args: [][]byte{[]byte(auctionID)}},
-		channel.WithRetry(retry.DefaultChannelOpts), channel.WithTargetEndpoints("peer0.org1.example.com", "peer0.org2.example.com"))
+	client.Execute(channel.Request{ChaincodeID: chaincodeID, Fcn: "CloseAuction", Args: [][]byte{[]byte(auctionID)}},
+		channel.WithRetry(retry.DefaultChannelOpts), channel.WithTargetEndpoints(endpoints...))
 	// pause to wait for the second phase of the auction
 	time.Sleep(time.Duration(30) * time.Second)
 
 	// end auction
-	client.Execute(channel.Request{ChaincodeID: "blindauction", Fcn: "EndAuction", Args: [][]byte{[]byte(auctionID)}},
-		channel.WithRetry(retry.DefaultChannelOpts), channel.WithTargetEndpoints("peer0.org1.example.com", "peer0.org2.example.com"))
+	client.Execute(channel.Request{ChaincodeID: chaincodeID, Fcn: "EndAuction", Args: [][]byte{[]byte(auctionID)}},
+		channel.WithRetry(retry.DefaultChannelOpts), channel.WithTargetEndpoints(endpoints...))
 
 	// query the auction
-	response, _ := client.Query(channel.Request{ChaincodeID: "blindauction", Fcn: "QueryAuction", Args: [][]byte{[]byte(auctionID)}},
-		channel.WithRetry(retry.DefaultChannelOpts), channel.WithTargetEndpoints("peer0.org1.example.com", "peer0.org2.example.com"))
+	response, _ := client.Query(channel.Request{ChaincodeID: chaincodeID, Fcn: "QueryAuction", Args: [][]byte{[]byte(auctionID)}},
+		channel.WithRetry(retry.DefaultChannelOpts), channel.WithTargetEndpoints(endpoints...))
 	var auction Auction
 	auctionBytes := response.Payload
 	fmt.Print(auctionBytes)
@@ -159,80 +164,104 @@ func launchClient(username string, auctionID, itemName string) {
 	var witness AuctionCircuit
 	encryptedBids := auction.EncryptedBids
 	commitments := auction.Commitments
-	bestPrice := 0
+	invalidBids := make(map[string] Bid)
+	bestPrice := -1
 	bestID := ""
 	n := 0
 	var bestCom twistededwards2.PointAffine
 	var bestR *big.Int
+	// check the number of bids is not greater than the max number of bids in a proof
+	// if it is, the auction requires manual intervention
+	if len(encryptedBids) > MaxBids {
+		panic("Too many bids in the auction")
+	}
 	for name, encryptedBid := range encryptedBids {
-		price, r, err := crypto.Decrypt(encryptedBid.Data, pk, sk)
-		comBytes := commitments[name]
-		com := twistededwards2.PointAffine{}
-		err = com.Unmarshal(comBytes)
-		if err == nil && crypto.CheckCommit(price, r, &com) {
-			witness.Values[n].Assign(price)
-			witness.Rs[n].Assign(r)
-			witness.ComsX[n].Assign(com.X)
-			witness.ComsY[n].Assign(com.Y)
+		comBytes, exists := commitments[name]
+		// only take the bid into account if there was a commitment for it
+		// this should always be true, otherwise there is a flaw in the smart contract
+		if exists {
+			price, r, err := crypto.Decrypt(encryptedBid.Data, pk, sk)
+			com := twistededwards2.PointAffine{}
+			err2 := com.Unmarshal(comBytes)
+			// check the decryption is valid
+			if err == nil && err2 == nil && crypto.CheckCommit(price, r, &com) {
+				witness.Values[n].Assign(price)
+				witness.Rs[n].Assign(r)
+				witness.ComsX[n].Assign(com.X)
+				witness.ComsY[n].Assign(com.Y)
 
-			if price > bestPrice {
-				bestPrice = price
-				bestID = name
-				bestCom = com
-				bestR = r
+				if price > bestPrice {
+					bestPrice = price
+					bestID = name
+					bestCom = com
+					bestR = r
+				}
+				n++
+			} else {
+				fmt.Errorf("decryption of bid %v invalid", name)
+				invalidBids[name] = Bid{
+					Type:  "bid",
+					Price: price,
+					R:     *r,
+				}
 			}
-			n++
-		} else {
-			// TODO
-			fmt.Println("err")
 		}
 	}
 
 	// Compute proof
-	witness.WinningValue.Assign(bestPrice)
-	witness.WinningR.Assign(bestR)
-	witness.WinningComX.Assign(bestCom.X)
-	witness.WinningComY.Assign(bestCom.Y)
+	var proofBytes []byte
+	if n > 0 {
+		witness.WinningValue.Assign(bestPrice)
+		witness.WinningR.Assign(bestR)
+		witness.WinningComX.Assign(bestCom.X)
+		witness.WinningComY.Assign(bestCom.Y)
 
-	// fill non used bids with a value of 0
-	for i := n; i < MaxBids; i++ {
-		value := 0
-		com, r, _ := crypto.Commit(value)
-		witness.Values[i].Assign(value)
-		witness.Rs[i].Assign(r)
-		witness.ComsX[i].Assign(com.X)
-		witness.ComsY[i].Assign(com.Y)
+		// fill non used bids with a value of 0
+		for i := n; i < MaxBids; i++ {
+			value := 0
+			com, r, _ := crypto.Commit(value)
+			witness.Values[i].Assign(value)
+			witness.Rs[i].Assign(r)
+			witness.ComsX[i].Assign(com.X)
+			witness.ComsY[i].Assign(com.Y)
+		}
+
+		// load circuit
+		circuitFile, err := os.Open("circuit")
+		defer circuitFile.Close()
+		r1cs := groth16.NewCS(ecc.BLS12_381)
+		_, err = r1cs.ReadFrom(circuitFile)
+		if err != nil {
+			panic(err)
+		}
+
+		// load proving key
+		prkFile, err := os.Open("pk")
+		defer prkFile.Close()
+		prk := groth16.NewProvingKey(ecc.BLS12_381)
+		_, err = prk.ReadFrom(prkFile)
+		if err != nil {
+			panic(err)
+		}
+
+		proof, err := groth16.Prove(r1cs, prk, &witness)
+		if err != nil {
+			panic(err)
+		}
+
+		var proofBuf bytes.Buffer
+		proof.WriteTo(&proofBuf)
+		proofBytes = proofBuf.Bytes()
 	}
-
-	// load circuit
-	circuitFile, err := os.Open("circuit")
-	defer circuitFile.Close()
-	r1cs := groth16.NewCS(ecc.BLS12_381)
-	_, err = r1cs.ReadFrom(circuitFile)
+	// put invalid bids into a JSON
+	invalidSet, err := json.Marshal(invalidBids)
 	if err != nil {
 		panic(err)
 	}
-
-	// load proving key
-	prkFile, err := os.Open("pk")
-	defer prkFile.Close()
-	prk := groth16.NewProvingKey(ecc.BLS12_381)
-	_, err = prk.ReadFrom(prkFile)
-	if err != nil {
-		panic(err)
-	}
-
-	proof, err := groth16.Prove(r1cs, prk, &witness)
-	if err != nil {
-		panic(err)
-	}
-
-	var proofBuf bytes.Buffer
-	proof.WriteTo(&proofBuf)
 
 	// declare winner
-	client.Execute(channel.Request{ChaincodeID: "blindauction", Fcn: "DeclareWinner", Args: [][]byte{[]byte(auctionID),
-		[]byte(bestID), []byte(base64.StdEncoding.EncodeToString(proofBuf.Bytes()))}},
-		channel.WithRetry(retry.DefaultChannelOpts), channel.WithTargetEndpoints("peer0.org1.example.com", "peer0.org2.example.com"))
+	client.Execute(channel.Request{ChaincodeID: chaincodeID, Fcn: "DeclareWinner", Args: [][]byte{[]byte(auctionID),
+		[]byte(bestID), []byte(base64.StdEncoding.EncodeToString(proofBytes)), invalidSet}},
+		channel.WithRetry(retry.DefaultChannelOpts), channel.WithTargetEndpoints(endpoints...))
 
 }

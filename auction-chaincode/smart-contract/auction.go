@@ -26,8 +26,9 @@ type Auction struct {
 	SellerPk	 [SellerPkSize]byte        `json:"sellerPk"`
 	Commitments  map[string] []byte        `json:"commitments"`
 	EncryptedBids map[string] EncryptedBid `json:"encryptedBids"`
+	InvalidSet   string                    `json:"invalidSet"`
 	WinningBid   string                    `json:"winningBid"`
-	Proof        []byte
+	Proof        []byte                    `json:"proof"`
 	Status       string                    `json:"status"`
 }
 
@@ -306,7 +307,7 @@ func (s *SmartContract) EndAuction(ctx contractapi.TransactionContextInterface, 
 }
 
 // DeclareWinner sets the winner of an auction
-func (s *SmartContract) DeclareWinner(ctx contractapi.TransactionContextInterface, auctionID, winningBidId, proof string) error {
+func (s *SmartContract) DeclareWinner(ctx contractapi.TransactionContextInterface, auctionID, winningBidId, proof, invalidSet string) error {
 	auctionBytes, err := ctx.GetStub().GetState(auctionID)
 	if err != nil {
 		return fmt.Errorf("failed to get auction %v: %v", auctionID, err)
@@ -346,6 +347,7 @@ func (s *SmartContract) DeclareWinner(ctx contractapi.TransactionContextInterfac
 	}
 	auctionJSON.Proof = proofBytes
 	auctionJSON.WinningBid = winningBidId
+	auctionJSON.InvalidSet = invalidSet
 	// Save auction
 	endedAuction, _ := json.Marshal(auctionJSON)
 	err = ctx.GetStub().PutState(auctionID, endedAuction)

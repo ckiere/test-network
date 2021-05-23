@@ -74,18 +74,16 @@ func ProveCommit(value int, r *big.Int, comBytes,  m []byte) (*twistededwards.Po
 }
 
 func CommitProofToBytes(t *twistededwards.PointAffine, s1, s2 *big.Int) []byte {
-	proofBytes := make([]byte, 48)
+	proofBytes := make([]byte, 96)
 	tBytes := t.Marshal()
 	copy(proofBytes[:32], tBytes)
-	s1Bytes := s1.Bytes()
-	copy(proofBytes[32:40], s1Bytes)
-	s2Bytes := s2.Bytes()
-	copy(proofBytes[40:48], s2Bytes)
+	s1.FillBytes(proofBytes[32:64])
+	s2.FillBytes(proofBytes[64:])
 	return proofBytes
 }
 
 func CheckCommitProofBytes(proofBytes, comBytes, m []byte) bool {
-	if len(proofBytes) != 48 {
+	if len(proofBytes) != 96 {
 		return false
 	}
 	tBytes := proofBytes[:32]
@@ -95,14 +93,14 @@ func CheckCommitProofBytes(proofBytes, comBytes, m []byte) bool {
 	if err != nil || !t.IsOnCurve() {
 		return false
 	}
-	s1Bytes := proofBytes[32:40]
+	s1Bytes := proofBytes[32:64]
 	s1 := new(big.Int)
 	s1.SetBytes(s1Bytes)
 	s1.Mod(s1, &order)
-	s2Bytes := proofBytes[40:48]
+	s2Bytes := proofBytes[64:]
 	s2 := new(big.Int)
 	s2.SetBytes(s2Bytes)
-	s2.Mod(s1, &order)
+	s2.Mod(s2, &order)
 	return CheckCommitProof(&t, s1, s2, comBytes, m)
 }
 

@@ -22,9 +22,11 @@ import (
 const configFileName = "DacConfig.json"
 const skFileName = "DacSk.json"
 const channelName = "auction"
+const chaincodeID = "blindauction"
 
 func main() {
 	argc := len(os.Args)
+
 	if argc > 1 {
 		cmd := os.Args[1]
 		if cmd == "createconfig" {
@@ -42,10 +44,10 @@ func main() {
 				fmt.Println("Wrong number of arguments")
 			}
 		} else if cmd == "client" {
-			if argc == 5 {
+			if argc > 5 {
 				price, err := strconv.Atoi(os.Args[4])
 				if err == nil && price > 0 {
-					launchClient(os.Args[2], os.Args[3], price)
+					launchClient(os.Args[2], os.Args[3], price, os.Args[5:])
 				} else {
 					fmt.Println("Invalid price")
 				}
@@ -60,7 +62,7 @@ func main() {
 	}
 }
 
-func launchClient(username string, auctionID string, price int) {
+func launchClient(username string, auctionID string, price int, endpoints []string) {
 	configBytes, _ := ioutil.ReadFile(configFileName)
 	dacConfig, err := dacidentity.CreateConfigFromBytes(configBytes)
 	userConfigBytes, _ := ioutil.ReadFile(username + ".json")
@@ -80,22 +82,36 @@ func launchClient(username string, auctionID string, price int) {
 	}
 
 	// get the auctioneer public key to encrypt the bid
-	response, _ := client.Query(channel.Request{ChaincodeID: "blindauction", Fcn: "QueryAuctioneerPk", Args: [][]byte{[]byte(auctionID)}},
-		channel.WithRetry(retry.DefaultChannelOpts), channel.WithTargetEndpoints("peer0.org1.example.com", "peer0.org2.example.com"))
+	response, err := client.Query(channel.Request{ChaincodeID: chaincodeID, Fcn: "QueryAuctioneerPk", Args: [][]byte{[]byte(auctionID)}},
+		channel.WithRetry(retry.DefaultChannelOpts), channel.WithTargetEndpoints(endpoints...))
+	if err != nil {
+		panic(err)
+	}
+
 	var auctioneerPk [32]byte
-	copy(auctioneerPk[:], response.Payload)
+	auctioneerPkBytes := make([]byte, base64.StdEncoding.DecodedLen(len(response.Payload)))
+	_, err = base64.StdEncoding.Decode(auctioneerPkBytes, response.Payload)
+	if err != nil {
+		panic(err)
+	}
+	copy(auctioneerPk[:], auctioneerPkBytes)
 
-	// renew the nym identity
-	//user.UpdateNymIdentity()
-
-	// commit to a bid
+	// commit to a bid and prove knowledge of opening values
 	com, r, err := crypto.Commit(price)
 	if err != nil {
 		panic(err)
 	}
-	comBase64 := base64.StdEncoding.EncodeToString(com.Marshal())
-	response, _ = client.Execute(channel.Request{ChaincodeID: "blindauction", Fcn: "SendCommitment", Args: [][]byte{[]byte(auctionID), []byte(comBase64)}},
-		channel.WithRetry(retry.DefaultChannelOpts), channel.WithTargetEndpoints("peer0.org1.example.com", "peer0.org2.example.com"))
+	comBytes := com.Marshal()
+	t, s1, s2, err := crypto.ProveCommit(price, r, comBytes, nil)
+	if err != nil {
+		panic(err)
+	}
+	proofBytes := crypto.CommitProofToBytes(t, s1, s2)
+
+	comBase64 := base64.StdEncoding.EncodeToString(comBytes)
+	proofBase64 := base64.StdEncoding.EncodeToString(proofBytes)
+	response, _ = client.Execute(channel.Request{ChaincodeID: chaincodeID, Fcn: "SendCommitment", Args: [][]byte{[]byte(auctionID), []byte(comBase64), []byte(proofBase64)}},
+		channel.WithRetry(retry.DefaultChannelOpts), channel.WithTargetEndpoints(endpoints...))
 	txID := response.Payload
 
 	// renew the nym identity
@@ -110,11 +126,19 @@ func launchClient(username string, auctionID string, price int) {
 		panic(err)
 	}
 
+	// generate proof of knowledge of opening values
+	t, s1, s2, err = crypto.ProveCommit(price, r, comBytes, encryptedBid)
+	if err != nil {
+		panic(err)
+	}
+	proof2Bytes := crypto.CommitProofToBytes(t, s1, s2)
+
 	// reveal the encrypted bid
 	encryptedBidBase64 := base64.StdEncoding.EncodeToString(encryptedBid)
-	client.Execute(channel.Request{ChaincodeID: "blindauction", Fcn: "RevealBid", Args: [][]byte{[]byte(auctionID), txID,
-		[]byte(""), []byte(encryptedBidBase64)}},
-		channel.WithRetry(retry.DefaultChannelOpts), channel.WithTargetEndpoints("peer0.org1.example.com", "peer0.org2.example.com"))
+	proof2Base64 := base64.StdEncoding.EncodeToString(proof2Bytes)
+	client.Execute(channel.Request{ChaincodeID: chaincodeID, Fcn: "RevealBid", Args: [][]byte{[]byte(auctionID), txID,
+		[]byte(""), []byte(encryptedBidBase64), []byte(proof2Base64)}},
+		channel.WithRetry(retry.DefaultChannelOpts), channel.WithTargetEndpoints(endpoints...))
 }
 
 func createConfigFiles() {
