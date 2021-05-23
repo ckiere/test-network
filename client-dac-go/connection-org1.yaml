@@ -1,0 +1,76 @@
+---
+name: test-network-org1
+version: 1.0.0
+channels:
+  _default:
+    policies:
+      eventService:
+        peerMonitorPeriod: 0
+  auction:
+    peers:
+      peer0.org1.example.com:
+        endorsingPeer: true
+        eventSource: false
+      peer0.org2.example.com:
+        endorsingPeer: true
+        eventSource: false
+    orderers:
+      - orderer.example.com
+        
+client:
+  
+  logging:
+    level: debug
+  global:
+    cache:
+      discovery: 10m
+      channelMembership: 10m
+  cryptoconfig:
+    path: ${FABRIC_MSP_ROOT}
+  connection:
+    timeout:
+      peer:
+        endorser: '300'
+  
+organizations:
+  Org1:
+    mspid: Org1MSP
+    peers:
+    - peer0.org1.example.com
+    cryptoPath: notAPath #peerOrganizations/org1.example.com/users/{username}@org1.example.com/msp
+  Org2:
+    mspid: Org2MSP
+    peers:
+    - peer0.org2.example.com
+    cryptoPath: notAPath
+peers:
+  _default:
+    grpcOptions:
+      allow-insecure: true
+  peer0.org1.example.com:
+    url: grpc://localhost:7051
+  peer0.org2.example.com:
+    url: grpc://localhost:9051
+orderers:
+  _default:
+    grpcOptions:
+      allow-insecure: true
+  orderer.example.com:
+    url: grpc://localhost:7050
+
+entityMatchers:
+  peer:
+    - pattern: peer0.org1.example.com:(\d+)
+      urlSubstitutionExp: localhost:${1}
+      mappedHost: peer0.org1.example.com
+
+    - pattern: peer0.org2.example.com:(\d+)
+      urlSubstitutionExp: localhost:${1}
+      mappedHost: peer0.org2.example.com
+  orderer:
+    - pattern: orderer.example.com
+      urlSubstitutionExp: localhost:7050
+      mappedHost: orderer.example.com
+    - pattern: orderer.example.com:7050
+      urlSubstitutionExp: localhost:7050
+      mappedHost: orderer.example.com

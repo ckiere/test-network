@@ -7,11 +7,14 @@ cryptogen generate --config=./organizations/cryptogen/crypto-config-orderer.yaml
 configtxgen -profile TwoOrgsOrdererGenesis -channelID system-channel -outputBlock ./system-genesis-block/genesis.block -configPath configtx
 - Launch network
 docker-compose up
+- on WSL, syncing the time is sometimes needed
+sudo hwclock -s
 - Delete the whole network
 docker-compose down -v
 # Peer setup
 - start CLI container (on windows)
 docker run -it --rm --network="host" -v "%cd%":/mnt hyperledger/fabric-tools bash
+docker run -it --rm --network="host" -v "%cd%":/mnt fabric-dac-tools:1.0 bash
 source ./act_as_admin.sh org1 Org1MSP peer0 localhost:7051
 - env
 ORDERER_OPTS="-o localhost:7050 --tls --cafile ${PWD}/organizations/ordererOrganizations/example.com/orderers/orderer.example.com/msp/tlscacerts/tlsca.example.com-cert.pem"
@@ -27,7 +30,7 @@ configtxgen -profile TwoOrgsChannel -outputCreateChannelTx ./channel-artifacts/$
 - Generate anchor peer tx
 configtxgen -profile TwoOrgsChannel -outputAnchorPeersUpdate ./channel-artifacts/Org1anchors.tx -channelID $CHANNEL_NAME -asOrg Org1
 - Create channel
-peer channel create -c $CHANNEL_NAME --ordererTLSHostnameOverride orderer.example.com -f ./channel-artifacts/${CHANNEL_NAME}.tx --outputBlock ./channel-artifacts/${CHANNEL_NAME}.block $ORDERER_OPTS
+peer channel create -c $CHANNEL_NAME -f ./channel-artifacts/${CHANNEL_NAME}.tx --outputBlock ./channel-artifacts/${CHANNEL_NAME}.block -o localhost:7050
 - Join channel
 peer channel join --blockpath ./channel-artifacts/${CHANNEL_NAME}.block
 # Chaincode
@@ -45,3 +48,6 @@ peer lifecycle chaincode commit --channelID ${CHANNEL_NAME} --name test1 --versi
 peer chaincode query -C channel1 --name test1 --ctor '{"Args":["QueryAuction","bla"]}'
 - Invoke
 peer chaincode invoke -C channel1 --name test1 --ctor '{"Args":["CreateAuction","bla", "test"]}' $ORDERER_OPTS --peerAddresses localhost:7051 --peerAddresses localhost:9051 --tlsRootCertFiles ${PWD}/organizations/peerOrganizations/org1.example.com/peers/peer0.org1.example.com/tls/ca.crt --tlsRootCertFiles ${PWD}/organizations/peerOrganizations/org2.example.com/peers/peer0.org2.example.com/tls/ca.crt
+
+Without TLS:
+peer chaincode query -C auction --name blindauction --ctor '{"Args":["QueryAuction","testauction"]}'

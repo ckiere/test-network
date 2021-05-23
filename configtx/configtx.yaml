@@ -137,6 +137,31 @@ Organizations:
             Endorsement:
                 Type: Signature
                 Rule: "OR('IdemixMSP.peer')"
+    
+    - &Dac
+        # DefaultOrg defines the organization which is used in the sampleconfig
+        # of the fabric.git development environment
+        Name: DacMSP
+
+        # ID to load the MSP definition as
+        ID: DacMSP
+
+        Msptype: dac
+        MSPDir: ../organizations/peerOrganizations/dac.example.com
+
+        Policies:
+            Readers:
+                Type: Signature
+                Rule: "OR('DacMSP.admin', 'DacMSP.peer', 'DacMSP.client')"
+            Writers:
+                Type: Signature
+                Rule: "OR('DacMSP.admin', 'DacMSP.client')"
+            Admins:
+                Type: Signature
+                Rule: "OR('DacMSP.admin')"
+            Endorsement:
+                Type: Signature
+                Rule: "OR('DacMSP.peer')"
 
 
 ################################################################################
@@ -389,5 +414,31 @@ Profiles:
                 - *Org1
                 - *Org2
                 - *Idemix
+            Capabilities:
+                <<: *ApplicationCapabilities
+    
+    DacOrdererGenesis:
+        <<: *ChannelDefaults
+        Orderer:
+            <<: *OrdererDefaults
+            Organizations:
+                - *OrdererOrg
+            Capabilities:
+                <<: *OrdererCapabilities
+        Consortiums:
+            DacConsortium:
+                Organizations:
+                    - *Org1
+                    - *Org2
+                    - *Dac
+    DacChannel:
+        Consortium: DacConsortium
+        <<: *ChannelDefaults
+        Application:
+            <<: *ApplicationDefaults
+            Organizations:
+                - *Org1
+                - *Org2
+                - *Dac
             Capabilities:
                 <<: *ApplicationCapabilities
